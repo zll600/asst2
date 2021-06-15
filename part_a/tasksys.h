@@ -49,10 +49,9 @@ class TaskSystemParallelSpawn: public ITaskSystem {
 };
 
 /*
- * TaskSystemParallelThreadPoolSpinning: This class is the student's
- * implementation of a parallel task execution engine that uses a
- * thread pool. See definition of ITaskSystem in itasksys.h for
- * documentation of the ITaskSystem interface.
+ * TasksState: This class is used to record the state of the 
+ * running task. Each worker thread and main thread must get 
+ * the lock first to read or write the attributes of this class.
  */
 class TasksState {
     public:
@@ -67,18 +66,12 @@ class TasksState {
         ~TasksState();
 };
 
-class TaskWrapper {
-    public:
-        IRunnable* runnable_;
-        TaskID id_;
-        int num_total_tasks_;
-        std::condition_variable* condition_variable_;
-        std::mutex* mutex_;
-        int* left_tasks_;
-        TaskWrapper(IRunnable* runnable, const TaskID id, const int num_total_tasks, std::condition_variable* cv, std::mutex* mutex, int* left_tasks);
-        ~TaskWrapper();
-};
-
+/*
+ * TaskSystemParallelThreadPoolSpinning: This class is the student's
+ * implementation of a parallel task execution engine that uses a
+ * thread pool. See definition of ITaskSystem in itasksys.h for
+ * documentation of the ITaskSystem interface.
+ */
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     private:
         TasksState* state_;
@@ -105,8 +98,7 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
  */
 class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     private:
-        std::queue<TaskWrapper*>taskQueue;
-        std::mutex* queueMutex;
+        TasksState* state_;
         std::thread* threads_pool_;
         std::condition_variable* hasTasks; 
         std::mutex* hasTasksMutex;
