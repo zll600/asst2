@@ -175,14 +175,14 @@ void TaskSystemParallelThreadPoolSpinning::spinningThread() {
             state_->runnable_->runTask(id, total);
             state_->mutex_->lock();
             state_->finished_tasks_++;
-            state_->mutex_->unlock();
-            //std::cerr << id << " task finished" << std::endl;
             if (state_->finished_tasks_ == total) {
+                state_->mutex_->unlock();
                 // this lock is necessary to ensure the main thread has gone to sleep
                 state_->finishedMutex_->lock();
                 state_->finishedMutex_->unlock();
                 state_->finished_->notify_all();
-                //std::cerr << "task finished" << std::endl;
+            }else {
+                state_->mutex_->unlock();
             }
         }
     }
