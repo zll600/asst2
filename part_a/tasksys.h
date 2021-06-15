@@ -54,6 +54,19 @@ class TaskSystemParallelSpawn: public ITaskSystem {
  * thread pool. See definition of ITaskSystem in itasksys.h for
  * documentation of the ITaskSystem interface.
  */
+class TasksState {
+    public:
+        std::mutex* mutex_;
+        std::condition_variable* finished_;
+        std::mutex* finishedMutex_;
+        IRunnable* runnable_;
+        int finished_tasks_;
+        int left_tasks_;
+        int num_total_tasks_;
+        TasksState();
+        ~TasksState();
+};
+
 class TaskWrapper {
     public:
         IRunnable* runnable_;
@@ -68,8 +81,7 @@ class TaskWrapper {
 
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     private:
-        std::queue<TaskWrapper*>taskQueue;
-        std::mutex* queueMutex;
+        TasksState* state_;
         std::thread* threads_pool_;
         bool killed;
         int num_threads_;

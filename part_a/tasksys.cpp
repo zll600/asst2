@@ -114,9 +114,26 @@ TaskWrapper::TaskWrapper(IRunnable* runnable, const TaskID id, const int num_tot
                         :runnable_(runnable), id_(id), num_total_tasks_(num_total_tasks), condition_variable_(cv), mutex_(mutex), left_tasks_(left_tasks){}
 TaskWrapper::~TaskWrapper() {}
 
+TasksState::TasksState() {
+    mutex_ = new std::mutex();
+    finished_ = new std::condition_variable();
+    finishedMutex_ = new std::mutex();
+    runnable_ = nullptr;
+    finished_tasks_ = -1;
+    left_tasks_ = -1;
+    num_total_tasks_ = -1;
+}
+
+TasksState::~TasksState() {
+    delete mutex_;
+    delete finished_;
+    delete finishedMutex_;
+}
+
 const char* TaskSystemParallelThreadPoolSpinning::name() {
     return "Parallel + Thread Pool + Spin";
 }
+
 
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
     //
@@ -125,9 +142,9 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    state_ = new TasksState;
     killed = false;
     threads_pool_ = new std::thread[num_threads];
-    queueMutex = new std::mutex();
     num_threads_ = num_threads;
     for (int i = 0; i < num_threads; i++) {
         threads_pool_[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::spinningThread, this);
@@ -140,61 +157,54 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
         threads_pool_[i].join();
     }
     delete[] threads_pool_;
-    delete queueMutex;
+    delete state_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::spinningThread() {
-    TaskWrapper* task;
+    int id;
+    int total;
     while (true)
     {
         if (killed) break;
-        task = nullptr;
-        queueMutex->lock();
-        if (!taskQueue.empty()){
-            task = taskQueue.front();
-            taskQueue.pop();
-        }
-        queueMutex->unlock();
-        if (task != nullptr) {
-            (task->runnable_)->runTask(task->id_, task->num_total_tasks_);
-            task->mutex_->lock(); 
-            *(task->left_tasks_) = (*(task->left_tasks_)) - 1;
-            if ((*task->left_tasks_) == 0) {
-                task->mutex_->unlock();
-                task->condition_variable_->notify_one();
-                delete task;
-                continue;
+        state_->mutex_->lock();
+        total = state_->num_total_tasks_;
+        id = total - state_->left_tasks_;
+        if (id < total) state_->left_tasks_--;
+        state_->mutex_->unlock();
+        if (id < total) {
+            state_->runnable_->runTask(id, total);
+            state_->mutex_->lock();
+            state_->finished_tasks_++;
+            state_->mutex_->unlock();
+            //std::cerr << id << " task finished" << std::endl;
+            if (state_->finished_tasks_ == total) {
+                // this lock is necessary to ensure the main thread has gone to sleep
+                state_->finishedMutex_->lock();
+                state_->finishedMutex_->unlock();
+                state_->finished_->notify_all();
+                //std::cerr << "task finished" << std::endl;
             }
-            task->mutex_->unlock();
-            delete task;
         }
     }
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-    std::condition_variable* cv = new std::condition_variable();
-    std::mutex* mutex = new std::mutex();
-    std::unique_lock<std::mutex> lk(*mutex);
-    int* left_tasks = new int;
-    *left_tasks = num_total_tasks;
-    for (int i = 0; i < num_total_tasks; i++) {
-        TaskWrapper* task = new TaskWrapper(runnable, i, num_total_tasks, cv, mutex, left_tasks);
-        queueMutex->lock();
-        taskQueue.push(task);
-        queueMutex->unlock();
-    }
+    std::unique_lock<std::mutex> lk(*(state_->finishedMutex_));
+    state_->mutex_->lock();
+    state_->finished_tasks_ = 0;
+    state_->left_tasks_ = num_total_tasks;
+    state_->num_total_tasks_ = num_total_tasks;
+    state_->runnable_ = runnable;
+    state_->mutex_->unlock();
     // go to sleep, wait for all the tasks to finish
-    cv->wait(lk);
-    delete mutex;
-    //delete cv;
-    delete left_tasks;
+    //std::cerr << "go to sleep" << std::endl;
+    state_->finished_->wait(lk); 
+    lk.unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -296,23 +306,27 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // method in Parts A and B.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-    std::condition_variable* cv = new std::condition_variable();
-    std::mutex* mutex = new std::mutex();
-    std::unique_lock<std::mutex> lk(*mutex);
-    int* left_tasks = new int;
-    *left_tasks = num_total_tasks;
     for (int i = 0; i < num_total_tasks; i++) {
-        TaskWrapper* task = new TaskWrapper(runnable, i, num_total_tasks, cv, mutex, left_tasks);
-        queueMutex->lock();
-        taskQueue.push(task);
-        queueMutex->unlock();
-        hasTasks->notify_all();
+        runnable->runTask(i, num_total_tasks);
     }
-    // go to sleep, wait for all the tasks to finish
-    cv->wait(lk);
-    delete mutex;
-    //delete cv;
-    delete left_tasks;
+
+    // std::condition_variable* cv = new std::condition_variable();
+    // std::mutex* mutex = new std::mutex();
+    // std::unique_lock<std::mutex> lk(*mutex);
+    // int* left_tasks = new int;
+    // *left_tasks = num_total_tasks;
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     TaskWrapper* task = new TaskWrapper(runnable, i, num_total_tasks, cv, mutex, left_tasks);
+    //     queueMutex->lock();
+    //     taskQueue.push(task);
+    //     queueMutex->unlock();
+    //     hasTasks->notify_all();
+    // }
+    // // go to sleep, wait for all the tasks to finish
+    // cv->wait(lk);
+    // delete mutex;
+    // //delete cv;
+    // delete left_tasks;
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
