@@ -1,5 +1,7 @@
 #include "tasksys.h"
 
+#include <atomic>
+
 IRunnable::~IRunnable() {}
 
 ITaskSystem::ITaskSystem(int num_threads) {}
@@ -137,19 +139,21 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-    state_ = new TasksState;
-    killed = false;
-    threads_pool_ = new std::thread[num_threads];
+    killed_ = false;
     num_threads_ = num_threads;
+    state_ = new TasksState;
+    threads_pool_ = new std::thread[num_threads];
     for (int i = 0; i < num_threads; i++) {
         threads_pool_[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::spinningThread, this);
     }
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
-    killed = true;
+    killed_ = true;
     for (int i = 0; i < num_threads_; i++) {
-        threads_pool_[i].join();
+		if (threads_pool_[i].joinable()) {
+			threads_pool_[i].join();
+		}
     }
     delete[] threads_pool_;
     delete state_;
@@ -158,23 +162,23 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 void TaskSystemParallelThreadPoolSpinning::spinningThread() {
     int id;
     int total;
-    while (true)
-    {
-        if (killed) break;
+    while (true) {
+        if (killed_) {
+			break;
+		}
+
         state_->mutex_->lock();
         total = state_->num_total_tasks_;
         id = total - state_->left_tasks_;
         if (id < total) state_->left_tasks_--;
         state_->mutex_->unlock();
+
         if (id < total) {
             state_->runnable_->runTask(id, total);
             state_->mutex_->lock();
             state_->finished_tasks_++;
             if (state_->finished_tasks_ == total) {
                 state_->mutex_->unlock();
-                // this lock is necessary to ensure the main thread has gone to sleep
-                state_->finishedMutex_->lock();
-                state_->finishedMutex_->unlock();
                 state_->finished_->notify_all();
             }else {
                 state_->mutex_->unlock();

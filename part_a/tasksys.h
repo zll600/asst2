@@ -4,10 +4,7 @@
 #include "itasksys.h"
 #include <thread>
 #include <mutex>
-#include <atomic>
 #include <condition_variable>
-#include <queue>
-#include <iostream>
 
 
 /*
@@ -74,10 +71,10 @@ class TasksState {
  */
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     private:
+        bool killed_;
+        int num_threads_;
         TasksState* state_;
         std::thread* threads_pool_;
-        bool killed;
-        int num_threads_;
     public:
         TaskSystemParallelThreadPoolSpinning(int num_threads);
         ~TaskSystemParallelThreadPoolSpinning();
