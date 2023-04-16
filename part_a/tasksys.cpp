@@ -160,16 +160,14 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 }
 
 void TaskSystemParallelThreadPoolSpinning::spinningThread() {
-    int id;
-    int total;
     while (true) {
         if (killed_) {
 			break;
 		}
 
         state_->mutex_->lock();
-        total = state_->num_total_tasks_;
-        id = total - state_->left_tasks_;
+        int total = state_->num_total_tasks_;
+        int id = total - state_->left_tasks_;
         if (id < total) state_->left_tasks_--;
         state_->mutex_->unlock();
 
