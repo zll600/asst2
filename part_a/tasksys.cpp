@@ -231,11 +231,11 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     // (requiring changes to tasksys.h).
     //
     state_ = new TasksState;
-    killed = false;
+    killed_ = false;
     threads_pool_ = new std::thread[num_threads];
     num_threads_ = num_threads;
-    hasTasks = new std::condition_variable();
-    hasTasksMutex = new std::mutex();
+    has_tasks_ = new std::condition_variable();
+    has_tasks_mutex_ = new std::mutex();
     for (int i = 0; i < num_threads; i++) {
         threads_pool_[i] = std::thread(&TaskSystemParallelThreadPoolSleeping::sleepingThread, this);
     }
@@ -248,46 +248,50 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-    killed = true;
+    killed_ = true;
     for (int i = 0; i < num_threads_; i++) {
-        hasTasks->notify_all();
+        has_tasks_->notify_all();
     }
     for (int i = 0; i < num_threads_; i++) {
-        threads_pool_[i].join();
+		if (threads_pool_[i].joinable()) {
+			threads_pool_[i].join();
+		}
     }
     delete[] threads_pool_;
     delete state_;
-    delete hasTasks;
-    delete hasTasksMutex;
+    delete has_tasks_;
+    delete has_tasks_mutex_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::sleepingThread() {
-    int id;
-    int total;
     while (true)
     {
-        if (killed) break;
+        if (killed_) {
+			break;
+		}
+
         state_->mutex_->lock();
-        total = state_->num_total_tasks_;
-        id = total - state_->left_tasks_;
-        if (id < total) state_->left_tasks_--;
+        int total = state_->num_total_tasks_;
+        int id = total - state_->left_tasks_;
+        if (id < total) {
+			state_->left_tasks_--;
+		}
         state_->mutex_->unlock();
+
         if (id < total) {
             state_->runnable_->runTask(id, total);
             state_->mutex_->lock();
             state_->finished_tasks_++;
             if (state_->finished_tasks_ == total) {
                 state_->mutex_->unlock();
-                // this lock is necessary to ensure the main thread has gone to sleep
-                state_->finishedMutex_->lock();
-                state_->finishedMutex_->unlock();
+
                 state_->finished_->notify_all();
             }else {
                 state_->mutex_->unlock();
             }
         } else {
-            std::unique_lock<std::mutex> lk(*hasTasksMutex);
-            hasTasks->wait(lk);
+            std::unique_lock<std::mutex> lk(*has_tasks_mutex_);
+            has_tasks_->wait(lk);
             lk.unlock();
         }
     }
@@ -305,8 +309,10 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     state_->num_total_tasks_ = num_total_tasks;
     state_->runnable_ = runnable;
     state_->mutex_->unlock();
-    for (int i = 0; i < num_total_tasks; i++)
-        hasTasks->notify_all();
+
+    for (int i = 0; i < num_total_tasks; i++) {
+        has_tasks_->notify_all();
+	}
     // go to sleep, wait for all the tasks to finish
     //std::cerr << "go to sleep" << std::endl;
     state_->finished_->wait(lk); 

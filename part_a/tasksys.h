@@ -97,9 +97,9 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     private:
         TasksState* state_;
         std::thread* threads_pool_;
-        std::condition_variable* hasTasks; 
-        std::mutex* hasTasksMutex;
-        bool killed;
+        std::condition_variable* has_tasks_;
+        std::mutex* has_tasks_mutex_;
+        bool killed_;
         int num_threads_;
     public:
         TaskSystemParallelThreadPoolSleeping(int num_threads);
